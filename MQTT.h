@@ -43,15 +43,17 @@
  * @endcode
  */
 
-struct TopicPayload
-{
-    char *topic;
-    char *payload;
-};
-
 #include "FP.h"
 #include "MQTTPubSub.h"
 #include "mbed.h"
+
+typedef struct MQTTInfo MQTTInfo;
+struct MQTTInfo
+{
+    char *topic;
+    char *payload;
+    int   length;
+};
 
 class MQTT : public MQTTPubSub
 {
@@ -61,7 +63,7 @@ public:
     char *mqttStream(void){return 0;}
     int   mqttStreamLength(void){return 0;}
     
-    FP <void,char*>callback;
+    FP <void,void*>callback;
 };
 
 #endif
