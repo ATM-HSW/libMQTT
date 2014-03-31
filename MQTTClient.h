@@ -27,18 +27,23 @@
 
 #include "mbed.h"
 #include "FP.h"
+#include "MQTTPacket.h"
+#include "include_me.h"
 
-class MQTTClient;
+namespace MQTT
+{
+
+class Client;
 
 enum QoS { QOS0, QOS1, QOS2 };
 
-class MQTTResult
+class Result
 {
     /* success or failure result data */
-    MQTTClient* client;
+    Client* client;
 };
 
-struct MQTTMessage
+struct Message
 {
     enum QoS qos;
     bool retained;
@@ -48,45 +53,40 @@ struct MQTTMessage
     size_t payloadlen;
 };
 
-struct MQTTConnectOptions
-{
-    unsigned short keepAliveInterval;
-    bool cleansession;
-    char* username;
-    char* password;
-    int timeout;
-    std::vector<char*> serverURIs;
-};
-
   
-class MQTTClient
+class Client
 {
     
 public:    
 
-    static FP<void, MQTTResult*> None;   // default argument of no result handler to indicate call should be blocking
+    static FP<void, Result*> None;   // default argument of no result handler to indicate call should be blocking
     
-    MQTTClient(char* serverURI, char* clientId = "", const int buffer_size = 100); 
+    Client(IPStack* ipstack, const int buffer_size = 100); 
        
-    int connect(MQTTConnectOptions* options = 0, FP<void, MQTTResult*> resultHandler = None);
+    int connect(MQTTPacket_connectData* options = 0, FP<void, Result*> resultHandler = None);
         
-    int publish(char* topic, MQTTMessage* message, FP<void, MQTTResult*> resultHandler = None);
+    int publish(char* topic, Message* message, FP<void, Result*> resultHandler = None);
     
-    int subscribe(char* topicFilter, int qos, FP<void, MQTTMessage*> messageHandler, FP<void, MQTTResult*> resultHandler = None);
+    int subscribe(char* topicFilter, int qos, FP<void, Message*> messageHandler, FP<void, Result*> resultHandler = None);
     
-    int unsubscribe(char* topicFilter, FP<void, MQTTResult*> resultHandler = None);
+    int unsubscribe(char* topicFilter, FP<void, Result*> resultHandler = None);
     
-    int disconnect(int timeout, FP<void, MQTTResult*> resultHandler = None);
+    int disconnect(int timeout, FP<void, Result*> resultHandler = None);
     
 private:
 
-    int sendPacket(char* buf, int buflen);
+    void cycle();
 
-    char* clientId;
-    char* serverURI;
+    int decodePacket(int* value, int timeout);
+    int readPacket(char* buf, int buflen, int timeout = -1);
+    int sendPacket(int length);
+    
+    IPStack* ipstack;
     char* buf;
     int buflen;
     
 };
+
+}
 
 #endif
