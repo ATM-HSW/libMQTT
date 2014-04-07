@@ -23,7 +23,6 @@
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
 
-#include "mbed.h"
 #include "FP.h"
 #include "MQTTPacket.h"
 

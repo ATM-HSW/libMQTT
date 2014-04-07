@@ -27,9 +27,10 @@ template<class Network, class Thread> MQTT::Client<Network, Thread>::Client(Netw
 {
     
    buf = new char[buffer_size];
+   readbuf = new char[buffer_size];
    this->ipstack = ipstack;
    this->command_timeout = command_timeout;
-   this->thread = new Thread(0); // only need a background thread for non-blocking mode
+   //this->thread = new Thread(0); // only need a background thread for non-blocking mode
    this->ipstack = network;
 }
 
@@ -93,7 +94,7 @@ template<class Network, class Thread> int MQTT::Client<Network,Thread>::readPack
     if ((rc = ipstack->read(readbuf + len, rem_len, timeout)) != rem_len)
         goto exit;
 
-    header.byte = buf[0];
+    header.byte = readbuf[0];
     rc = header.bits.type;
 exit:
     return rc;
@@ -107,10 +108,13 @@ template<class Network, class Thread> int MQTT::Client<Network, Thread>::cycle()
     
     // 1. read the socket, see what work is due. 
     int packet_type = readPacket(-1);
+
+	printf("packet type %d\n", packet_type);
     
     switch (packet_type)
     {
         case CONNACK:
+			printf("connack received\n");
             break;
         case PUBACK:
             break;
@@ -129,24 +133,36 @@ template<class Network, class Thread> int MQTT::Client<Network, Thread>::cycle()
 
 template<class Network, class Thread> int MQTT::Client<Network, Thread>::connect(MQTTPacket_connectData* options, FP<void, MQTT::Result*> *resultHandler)
 {
-    /* 1. connect to the server with the desired transport */
-    /*if (!ipstack->connect())
-        return -99;*/
-    
-    /* 2. if the connect was successful, send the MQTT connect packet */        
-    int len = MQTTSerialize_connect(buf, buflen, options);
-    sendPacket(len); // send the connect packet
+	int len = 0;
+	int rc = -99;
+
+    /* 2. if the connect was successful, send the MQTT connect packet */   
+	if (options == 0)
+	{
+		MQTTPacket_connectData default_options = MQTTPacket_connectData_initializer;
+		default_options.clientID.cstring = "me";
+		len = MQTTSerialize_connect(buf, buflen, &default_options);
+	}
+	else
+		len = MQTTSerialize_connect(buf, buflen, options);
+    rc = sendPacket(len); // send the connect packet
+	printf("rc from send is %d\n", rc);
     
     /* 3. wait until the connack is received */
     if (resultHandler == 0)
     {
         // this will be a blocking call, wait for the connack
-        //waitfor(CONNACK);    
+		if (cycle() == CONNACK)
+		{
+			int connack_rc = -1;
+			if (MQTTDeserialize_connack(&connack_rc, readbuf, readbuflen) == 1)
+				rc = connack_rc;
+		}
     }
     else
     {
         // set connect response callback function
     }
     
-    return len;
+    return rc;
 }
