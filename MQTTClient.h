@@ -23,25 +23,16 @@
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
 
-#include <vector>
-
 #include "mbed.h"
 #include "FP.h"
 #include "MQTTPacket.h"
-#include "include_me.h"
 
 namespace MQTT
 {
 
-class Client;
 
 enum QoS { QOS0, QOS1, QOS2 };
 
-class Result
-{
-    /* success or failure result data */
-    Client* client;
-};
 
 struct Message
 {
@@ -53,37 +44,50 @@ struct Message
     size_t payloadlen;
 };
 
+template<class Network, class Thread> class Client;
+
+class Result
+{
+    /* success or failure result data */
+    Client<class Network, class Thread>* client;
+};
+
   
-class Client
+template<class Network, class Thread> class Client
 {
     
 public:    
-
-    static FP<void, Result*> None;   // default argument of no result handler to indicate call should be blocking
-    
-    Client(IPStack* ipstack, const int buffer_size = 100); 
+   
+    Client(Network* network, const int buffer_size = 100, const int command_timeout = 30);  
        
-    int connect(MQTTPacket_connectData* options = 0, FP<void, Result*> resultHandler = None);
+    int connect(MQTTPacket_connectData* options = 0, FP<void, Result*> *resultHandler = 0);
         
-    int publish(char* topic, Message* message, FP<void, Result*> resultHandler = None);
+    int publish(char* topic, Message* message, FP<void, Result*> *resultHandler = 0);
     
-    int subscribe(char* topicFilter, int qos, FP<void, Message*> messageHandler, FP<void, Result*> resultHandler = None);
+    int subscribe(char* topicFilter, int qos, FP<void, Message*> messageHandler, FP<void, Result*> *resultHandler = 0);
     
-    int unsubscribe(char* topicFilter, FP<void, Result*> resultHandler = None);
+    int unsubscribe(char* topicFilter, FP<void, Result*> *resultHandler = 0);
     
-    int disconnect(int timeout, FP<void, Result*> resultHandler = None);
+    int disconnect(int timeout, FP<void, Result*> *resultHandler = 0);
     
 private:
 
-    void cycle();
+    int cycle();
 
     int decodePacket(int* value, int timeout);
-    int readPacket(char* buf, int buflen, int timeout = -1);
+    int readPacket(int timeout = -1);
     int sendPacket(int length);
     
-    IPStack* ipstack;
+    Thread* thread;
+    Network* ipstack;
+    
     char* buf;
     int buflen;
+    
+    char* readbuf;
+    int readbuflen;
+    
+    int command_timeout;
     
 };
 

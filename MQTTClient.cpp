@@ -23,26 +23,29 @@
 #include "MQTTClient.h"
 #include "MQTTPacket.h"
 
-MQTT::Client::Client(IPStack* ipstack, const int buffer_size)
+template<class Network, class Thread> MQTT::Client<Network, Thread>::Client(Network* network, const int buffer_size, const int command_timeout)
 {
     
    buf = new char[buffer_size];
    this->ipstack = ipstack;
+   this->command_timeout = command_timeout;
+   this->thread = new Thread(0); // only need a background thread for non-blocking mode
+   this->ipstack = network;
 }
 
 
-int MQTT::Client::sendPacket(int length)
+template<class Network, class Thread> int MQTT::Client<Network, Thread>::sendPacket(int length)
 {
     int sent = 0;
     
     while (sent < length)
-        sent += ipstack->write(&buf[sent], length);
+        sent += ipstack->write(&buf[sent], length, -1);
         
     return sent;
 }
 
 
-int MQTT::Client::decodePacket(int* value, int timeout)
+template<class Network, class Thread> int MQTT::Client<Network, Thread>::decodePacket(int* value, int timeout)
 {
     char c;
     int multiplier = 1;
@@ -70,10 +73,10 @@ exit:
 }
 
 
-int MQTT::Client::readPacket(int timeout) 
+template<class Network, class Thread> int MQTT::Client<Network,Thread>::readPacket(int timeout) 
 {
     int rc = -1;
-    MQTTHeader header;
+    MQTTHeader header = {0};
     int len = 0;
     int rem_len = 0;
 
@@ -97,35 +100,53 @@ exit:
 }
 
 
-void MQTT::Client::cycle()
+template<class Network, class Thread> int MQTT::Client<Network, Thread>::cycle()
 {
     int timeout = 1000L;
     /* get one piece of work off the wire and one pass through */
     
     // 1. read the socket, see what work is due. 
-    int packet_type = readPacket(buf, buflen, -1);
+    int packet_type = readPacket(-1);
     
+    switch (packet_type)
+    {
+        case CONNACK:
+            break;
+        case PUBACK:
+            break;
+        case SUBACK:
+            break;
+        case PUBREC:
+            break;
+        case PUBCOMP:
+            break;
+        case PINGRESP:
+            break;
+    }
+    return packet_type;
 }
 
 
-int MQTT::Client::connect(MQTTPacket_connectData* options, FP<void, MQTT::Result*> resultHandler)
+template<class Network, class Thread> int MQTT::Client<Network, Thread>::connect(MQTTPacket_connectData* options, FP<void, MQTT::Result*> *resultHandler)
 {
     /* 1. connect to the server with the desired transport */
-    if (!ipstack->connect())
-        return -99;
+    /*if (!ipstack->connect())
+        return -99;*/
     
     /* 2. if the connect was successful, send the MQTT connect packet */        
     int len = MQTTSerialize_connect(buf, buflen, options);
     sendPacket(len); // send the connect packet
     
     /* 3. wait until the connack is received */
-    /* how to make this check work?
-    if (resultHandler == None)
+    if (resultHandler == 0)
     {
         // this will be a blocking call, wait for the connack
-        
-    }*/
+        //waitfor(CONNACK);    
+    }
+    else
+    {
+        // set connect response callback function
+    }
     
     return len;
 }
-
