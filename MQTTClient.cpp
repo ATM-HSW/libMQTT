@@ -1,29 +1,23 @@
-/**
- * @file    MQTTPubSub.cpp
- * @brief   API - for MQTT
- * @author  
- * @version 1.0
- * @see     
+/*******************************************************************************
+ * Copyright (c) 2014 IBM Corp.
  *
- * Copyright (c) 2014
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
+ * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * The Eclipse Public License is available at
+ *    http://www.eclipse.org/legal/epl-v10.html
+ * and the Eclipse Distribution License is available at
+ *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+ * Contributors:
+ *    Ian Craggs - initial API and implementation and/or initial documentation
+ *******************************************************************************/
  
 #include "MQTTClient.h"
 #include "MQTTPacket.h"
 
-template<class Network, class Thread> MQTT::Client<Network, Thread>::Client(Network* network, const int buffer_size, const int command_timeout)
+template<class Network, class Timer, class Thread> MQTT::Client<Network, Timer, Thread>::Client(Network* network, Timer* timer, const int buffer_size, const int command_timeout)
 {
     
    buf = new char[buffer_size];
@@ -32,10 +26,18 @@ template<class Network, class Thread> MQTT::Client<Network, Thread>::Client(Netw
    this->command_timeout = command_timeout;
    //this->thread = new Thread(0); // only need a background thread for non-blocking mode
    this->ipstack = network;
+   this->packetid = 0;
+   this->timer = timer;
 }
 
 
-template<class Network, class Thread> int MQTT::Client<Network, Thread>::sendPacket(int length)
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::getPacketId()
+{
+	return this->packetid = (this->packetid == MAX_PACKET_ID) ? 1 : ++this->packetid;
+}
+
+
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::sendPacket(int length, int timeout)
 {
     int sent = 0;
     
@@ -46,7 +48,7 @@ template<class Network, class Thread> int MQTT::Client<Network, Thread>::sendPac
 }
 
 
-template<class Network, class Thread> int MQTT::Client<Network, Thread>::decodePacket(int* value, int timeout)
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::decodePacket(int* value, int timeout)
 {
     char c;
     int multiplier = 1;
@@ -74,7 +76,13 @@ exit:
 }
 
 
-template<class Network, class Thread> int MQTT::Client<Network,Thread>::readPacket(int timeout) 
+/**
+ * If any read fails in this method, then we should disconnect from the network, as on reconnect
+ * the packets can be retried. 
+ * @param timeout the max time to wait for the packet read to complete, in milliseconds
+ * @return the MQTT packet type, or -1 if none
+ */
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::readPacket(int timeout) 
 {
     int rc = -1;
     MQTTHeader header = {0};
@@ -82,7 +90,7 @@ template<class Network, class Thread> int MQTT::Client<Network,Thread>::readPack
     int rem_len = 0;
 
     /* 1. read the header byte.  This has the packet type in it */
-    if ((rc = ipstack->read(readbuf, 1, timeout)) != 1)
+    if (ipstack->read(readbuf, 1, timeout) != 1)
         goto exit;
 
     len = 1;
@@ -91,7 +99,7 @@ template<class Network, class Thread> int MQTT::Client<Network,Thread>::readPack
     len += MQTTPacket_encode(readbuf + 1, rem_len); /* put the original remaining length back into the buffer */
 
     /* 3. read the rest of the buffer using a callback to supply the rest of the data */
-    if ((rc = ipstack->read(readbuf + len, rem_len, timeout)) != rem_len)
+    if (ipstack->read(readbuf + len, rem_len, timeout) != rem_len)
         goto exit;
 
     header.byte = readbuf[0];
@@ -101,7 +109,7 @@ exit:
 }
 
 
-template<class Network, class Thread> int MQTT::Client<Network, Thread>::cycle()
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::cycle()
 {
     int timeout = 1000L;
     /* get one piece of work off the wire and one pass through */
@@ -131,20 +139,21 @@ template<class Network, class Thread> int MQTT::Client<Network, Thread>::cycle()
 }
 
 
-template<class Network, class Thread> int MQTT::Client<Network, Thread>::connect(MQTTPacket_connectData* options, FP<void, MQTT::Result*> *resultHandler)
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::connect(MQTTPacket_connectData* options, FP<void, MQTT::Result*> *resultHandler)
 {
 	int len = 0;
 	int rc = -99;
+	MQTTPacket_connectData default_options = MQTTPacket_connectData_initializer;
 
     /* 2. if the connect was successful, send the MQTT connect packet */   
 	if (options == 0)
 	{
-		MQTTPacket_connectData default_options = MQTTPacket_connectData_initializer;
 		default_options.clientID.cstring = "me";
-		len = MQTTSerialize_connect(buf, buflen, &default_options);
+		options = &default_options;
 	}
-	else
-		len = MQTTSerialize_connect(buf, buflen, options);
+	
+	this->keepalive = options->keepAliveInterval;
+	len = MQTTSerialize_connect(buf, buflen, options);
     rc = sendPacket(len); // send the connect packet
 	printf("rc from send is %d\n", rc);
     
@@ -165,4 +174,35 @@ template<class Network, class Thread> int MQTT::Client<Network, Thread>::connect
     }
     
     return rc;
+}
+
+
+template<class Network, class Timer, class Thread> int MQTT::Client<Network, Timer, Thread>::subscribe(const char* topicFilter, enum QoS qos, FP<void, Message*> messageHandler, 
+		FP<void, Result*> *resultHandler)
+{
+	int rc = -1, 
+	    len = 0;
+	MQTTString topic = {(char*)topicFilter, 0, 0};
+	
+	len = MQTTSerialize_subscribe(buf, buflen, 0, getPacketId(), 1, &topic, (int*)&qos);
+	rc = sendPacket(len); // send the subscribe packet
+	
+	/* wait for suback */
+    if (resultHandler == 0)
+    {
+        // this will block
+		if (cycle() == SUBACK)
+		{
+			int count = 0, grantedQoS = -1;
+			if (MQTTDeserialize_suback(&packetid, 1, &count, &grantedQoS, readbuf, readbuflen) == 1)
+				rc = grantedQoS; // 0, 1, 2 or 0x80 
+		}
+    }
+    else
+    {
+        // set subscribe response callback function
+        
+    }
+	
+	return rc;
 }

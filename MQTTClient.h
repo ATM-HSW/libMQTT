@@ -1,33 +1,30 @@
-/**
- * @file    MQTTPubSub.h
- * @brief   API - for MQTT
- * @author  
- * @version 1.0
- * @see     
+/*******************************************************************************
+ * Copyright (c) 2014 IBM Corp.
  *
- * Copyright (c) 2014
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
+ * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * The Eclipse Public License is available at
+ *    http://www.eclipse.org/legal/epl-v10.html
+ * and the Eclipse Distribution License is available at
+ *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+ * Contributors:
+ *    Ian Craggs - initial API and implementation and/or initial documentation
+ *******************************************************************************/
 
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
 
 #include "FP.h"
 #include "MQTTPacket.h"
+#include "stdio.h"
 
 namespace MQTT
 {
+    
+const int MAX_PACKET_ID = 65535;
 
 
 enum QoS { QOS0, QOS1, QOS2 };
@@ -43,27 +40,27 @@ struct Message
     size_t payloadlen;
 };
 
-template<class Network, class Thread> class Client;
+template<class Network, class Timer, class Thread> class Client;
 
 class Result
 {
     /* success or failure result data */
-    Client<class Network, class Thread>* client;
+    Client<class Network, class Timer, class Thread>* client;
 };
 
   
-template<class Network, class Thread> class Client
+template<class Network, class Timer, class Thread> class Client
 {
     
 public:    
    
-    Client(Network* network, const int buffer_size = 100, const int command_timeout = 30);  
+    Client(Network* network, Timer* timer, const int buffer_size = 100, const int command_timeout = 30);  
        
     int connect(MQTTPacket_connectData* options = 0, FP<void, Result*> *resultHandler = 0);
         
-    int publish(char* topic, Message* message, FP<void, Result*> *resultHandler = 0);
+    int publish(const char* topic, Message* message, FP<void, Result*> *resultHandler = 0);
     
-    int subscribe(char* topicFilter, int qos, FP<void, Message*> messageHandler, FP<void, Result*> *resultHandler = 0);
+    int subscribe(const char* topicFilter, enum QoS qos, FP<void, Message*> messageHandler, FP<void, Result*> *resultHandler = 0);
     
     int unsubscribe(char* topicFilter, FP<void, Result*> *resultHandler = 0);
     
@@ -71,14 +68,16 @@ public:
     
 private:
 
+    int getPacketId();
     int cycle();
 
     int decodePacket(int* value, int timeout);
     int readPacket(int timeout = -1);
-    int sendPacket(int length);
+    int sendPacket(int length, int timeout = -1);
     
     Thread* thread;
     Network* ipstack;
+    Timer* timer;
     
     char* buf;
     int buflen;
@@ -86,7 +85,9 @@ private:
     char* readbuf;
     int readbuflen;
     
-    int command_timeout;
+    int command_timeout; // max time to wait for any MQTT command to complete, in seconds
+    int keepalive;
+    int packetid;
     
 };
 
