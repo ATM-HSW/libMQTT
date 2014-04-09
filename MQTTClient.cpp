@@ -23,3 +23,13 @@ void MQTT::threadfn(void* arg)
    ((Client<Network, Timer, Thread>*) arg)->run(NULL);
 }
 
+
+MQTT::PacketId::PacketId()
+{
+	next = 0;
+}
+
+int MQTT::PacketId::getNext()
+{
+    return next = (next == MAX_PACKET_ID) ? 1 : ++next;
+}
