@@ -1,4 +1,6 @@
 
+#if defined(LINUX)
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/param.h>
@@ -230,3 +232,5 @@ int main(int argc, char* argv[])
 	rc = client.subscribe("topic", MQTT::QOS2, messageArrivedPointer);
 	sleep(1);
 }
+
+#endif
