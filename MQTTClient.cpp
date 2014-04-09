@@ -22,7 +22,7 @@ template<class Network, class Timer, class Thread> MQTT::Client<Network, Timer, 
     
    buf = new char[buffer_size];
    readbuf = new char[buffer_size];
-   this->ipstack = ipstack;
+   buflen = readbuflen = buffer_size;
    this->command_timeout = command_timeout;
    //this->thread = new Thread(0); // only need a background thread for non-blocking mode
    this->ipstack = network;
@@ -154,6 +154,7 @@ template<class Network, class Timer, class Thread> int MQTT::Client<Network, Tim
 	
 	this->keepalive = options->keepAliveInterval;
 	len = MQTTSerialize_connect(buf, buflen, options);
+	printf("len from send is %d %d\n", len, buflen);
     rc = sendPacket(len); // send the connect packet
 	printf("rc from send is %d\n", rc);
     
