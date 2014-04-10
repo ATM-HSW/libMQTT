@@ -114,11 +114,18 @@ private:
     typedef FP<void, Message*> messageHandlerFP;
     messageHandlerFP messageHandlers[MAX_MESSAGE_HANDLERS];  // Linked list, or constructor parameter to limit array size?
     
+    static void threadfn(void* arg);
+    
 };
 
-void threadfn(void* arg);
 
 }
+
+template<class Network, class Timer, class Thread> void MQTT::Client<Network, Timer, Thread>::threadfn(void* arg)
+{
+    ((Client<Network, Timer, Thread>*) arg)->run(NULL);
+}
+
 
 template<class Network, class Timer, class Thread> MQTT::Client<Network, Timer, Thread>::Client(Network* network, Timer* timer, const int buffer_size, const int command_timeout)  : packetid()
 {
@@ -241,6 +248,10 @@ template<class Network, class Timer, class Thread> int MQTT::Client<Network, Tim
 
 template<class Network, class Timer, class Thread> void MQTT::Client<Network, Timer, Thread>::run(void const *argument)
 {
+    while (true)
+    {
+       cycle();
+    }
 }
 
 
@@ -280,8 +291,7 @@ template<class Network, class Timer, class Thread> int MQTT::Client<Network, Tim
         connectHandler.attach(resultHandler);
         
         // start background thread
-            
-        this->thread = new Thread((void (*)(void const *argument))&MQTT::threadfn, (void*)this);
+        this->thread = new Thread((void (*)(void const *argument))&MQTT::Client<Network, Timer, Thread>::threadfn, (void*)this);
     }
     
     return rc;

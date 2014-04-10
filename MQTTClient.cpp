@@ -17,13 +17,6 @@
 #include "MQTTClient.h"
 #include "MQTTPacket.h"
 
-
-void MQTT::threadfn(void* arg)
-{
-   ((Client<Network, Timer, Thread>*) arg)->run(NULL);
-}
-
-
 MQTT::PacketId::PacketId()
 {
 	next = 0;
