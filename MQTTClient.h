@@ -39,6 +39,13 @@ struct Message
 };
 
 
+struct MessageData
+{
+    struct Message message;
+    char* topicName;
+};
+
+
 class PacketId
 {
 public:
@@ -55,66 +62,105 @@ typedef void (*messageHandler)(Message*);
 
 typedef struct limits
 {
-	int MAX_MQTT_PACKET_SIZE; // 
-	int MAX_MESSAGE_HANDLERS;  // each subscription requires a message handler
-	int MAX_CONCURRENT_OPERATIONS;  // each command which runs concurrently can have a result handler, when we are in multi-threaded mode
-	int command_timeout;
-		
-	limits()
-	{
-		MAX_MQTT_PACKET_SIZE = 100;
-		MAX_MESSAGE_HANDLERS = 5;
-		MAX_CONCURRENT_OPERATIONS = 1; // 1 indicates single-threaded mode - set to >1 for multithreaded mode
-		command_timeout = 30;
-	}
+    int MAX_MQTT_PACKET_SIZE; // 
+    int MAX_MESSAGE_HANDLERS;  // each subscription requires a message handler
+    long command_timeout_ms;
+        
+    limits()
+    {
+        MAX_MQTT_PACKET_SIZE = 100;
+        MAX_MESSAGE_HANDLERS = 5;
+        command_timeout_ms = 30000;
+    }
 } Limits;
   
   
-template<class Network, class Timer, class Thread, class Mutex> class Client
+template<class Network, class Timer> class Client
 {
     
 public:    
 
-	struct Result
-	{
-    	/* success or failure result data */
-    	Client<Network, Timer, Thread, Mutex>* client;
-		int connack_rc;
-	};
-
-	typedef void (*resultHandler)(Result*);	
-   
+    /** Construct the client
+     *  @param network - pointer to an instance of the Network class - must be connected to the endpoint
+     *      before calling MQTT connect
+     *  @param limits an instance of the Limit class - to alter limits as required
+     */
     Client(Network* network, const Limits limits = Limits()); 
-           
-    int connect(MQTTPacket_connectData* options = 0, resultHandler fn = 0);
     
-     template<class T>
-    int connect(MQTTPacket_connectData* options = 0, T *item = 0, void(T::*method)(Result *) = 0);  // alternative to pass in pointer to member function
-        
-    int publish(const char* topic, Message* message, resultHandler rh = 0);
+    typedef struct
+    {
+        Client* client;
+        Network* network;
+    } connectionLostInfo;
     
-    int subscribe(const char* topicFilter, enum QoS qos, messageHandler mh, resultHandler rh = 0);
+    typedef int (*connectionLostHandlers)(connectionLostInfo*);
     
-    int unsubscribe(const char* topicFilter, resultHandler rh = 0);
+    /** Set the connection lost callback - called whenever the connection is lost and we should be connected
+     *  @param clh - pointer to the callback function
+     */
+    void setConnectionLostHandler(connectionLostHandlers clh)
+    {
+        connectionLostHandler.attach(clh);
+    }
     
-    int disconnect(int timeout, resultHandler rh = 0);
+    /** Set the default message handling callback - used for any message which does not match a subscription message handler
+     *  @param mh - pointer to the callback function
+     */
+    void setDefaultMessageHandler(messageHandler mh)
+    {
+        defaultMessageHandler.attach(mh);
+    }
     
-	void yield(int timeout);
+    /** MQTT Connect - send an MQTT connect packet down the network and wait for a Connack
+     *  The nework object must be connected to the network endpoint before calling this 
+     *  @param options - connect options
+     *  @return success code -  
+     */       
+    int connect(MQTTPacket_connectData* options = 0);
+      
+    /** MQTT Publish - send an MQTT publish packet and wait for all acks to complete for all QoSs
+     *  @param topic - the topic to publish to
+     *  @param message - the message to send
+     *  @return success code -  
+     */      
+    int publish(const char* topicName, Message* message);
+   
+    /** MQTT Subscribe - send an MQTT subscribe packet and wait for the suback
+     *  @param topicFilter - a topic pattern which can include wildcards
+     *  @param qos - the MQTT QoS to subscribe at
+     *  @param mh - the callback function to be invoked when a message is received for this subscription
+     *  @return success code -  
+     */   
+    int subscribe(const char* topicFilter, enum QoS qos, messageHandler mh);
+    
+    /** MQTT Unsubscribe - send an MQTT unsubscribe packet and wait for the unsuback
+     *  @param topicFilter - a topic pattern which can include wildcards
+     *  @return success code -  
+     */   
+    int unsubscribe(const char* topicFilter);
+    
+    /** MQTT Disconnect - send an MQTT disconnect packet 
+     *  @return success code -  
+     */
+    int disconnect();
+    
+    /** A call to this API must be made within the keepAlive interval to keep the MQTT connection alive
+     *  yield can be called if no other MQTT operation is needed.  This will also allow messages to be 
+     *  received.
+     */
+    void yield(int timeout);
     
 private:
 
-    void run(void const *argument);
-    int cycle(int timeout);
-    int waitfor(int packet_type, Timer& atimer);
-	int keepalive();
-	int findFreeOperation();
+    int cycle(Timer& timer);
+    int waitfor(int packet_type, Timer& timer);
+    int keepalive();
 
     int decodePacket(int* value, int timeout);
-    int readPacket(int timeout);
-    int sendPacket(int length, int timeout);
-	int deliverMessage(MQTTString* topic, Message* message);
+    int readPacket(Timer& timer);
+    int sendPacket(int length, Timer& timer);
+    int deliverMessage(MQTTString* topic, Message* message);
     
-    Thread* thread;
     Network* ipstack;
     
     Limits limits;
@@ -122,82 +168,63 @@ private:
     char* buf;  
     char* readbuf;
 
-    Timer ping_timer, connect_timer;
+    Timer ping_timer;
     unsigned int keepAliveInterval;
-	bool ping_outstanding;
+    bool ping_outstanding;
     
     PacketId packetid;
-    
-    typedef FP<void, Result*> resultHandlerFP;    
-    resultHandlerFP connectHandler; 
     
     typedef FP<void, Message*> messageHandlerFP;
     struct MessageHandlers
     {
-    	const char* topic;
-    	messageHandlerFP fp;
+        const char* topic;
+        messageHandlerFP fp;
     } *messageHandlers;      // Message handlers are indexed by subscription topic
     
-    // how many concurrent operations should we allow?  Each one will require a function pointer
-    struct Operations
-    {
-    	unsigned short id;
-    	resultHandlerFP fp;
-    	const char* topic;         // if this is a publish, store topic name in case republishing is required
-    	Message* message;    // for publish, 
-    	Timer timer;         // to check if the command has timed out
-    } *operations;           // result handlers are indexed by packet ids
-
-	static void threadfn(void* arg);
+    messageHandlerFP defaultMessageHandler;
+    
+    typedef FP<int, connectionLostInfo*> connectionLostFP;
+    
+    connectionLostFP connectionLostHandler;
     
 };
 
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> void MQTT::Client<Network, Timer, Thread, Mutex>::threadfn(void* arg)
+template<class Network, class Timer> MQTT::Client<Network, Timer>::Client(Network* network, Limits limits)  : limits(limits), packetid()
 {
-    ((Client<Network, Timer, Thread, Mutex>*) arg)->run(NULL);
+    this->ipstack = network;
+    this->ping_timer = Timer();
+    this->ping_outstanding = 0;
+       
+    // How to make these memory allocations portable?  I was hoping to avoid the heap
+    buf = new char[limits.MAX_MQTT_PACKET_SIZE];
+    readbuf = new char[limits.MAX_MQTT_PACKET_SIZE];
+    this->messageHandlers = new struct MessageHandlers[limits.MAX_MESSAGE_HANDLERS];
+    for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
+        messageHandlers[i].topic = 0;
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> MQTT::Client<Network, Timer, Thread, Mutex>::Client(Network* network, Limits limits)  : limits(limits), packetid()
-{
-	this->thread = 0;
-	this->ipstack = network;
-	this->ping_timer = Timer();
-	this->ping_outstanding = 0;
-	   
-	// How to make these memory allocations portable?  I was hoping to avoid the heap
-	buf = new char[limits.MAX_MQTT_PACKET_SIZE];
-	readbuf = new char[limits.MAX_MQTT_PACKET_SIZE];
-	this->operations = new struct Operations[limits.MAX_CONCURRENT_OPERATIONS];
-	for (int i = 0; i < limits.MAX_CONCURRENT_OPERATIONS; ++i)
-		operations[i].id = 0;
-	this->messageHandlers = new struct MessageHandlers[limits.MAX_MESSAGE_HANDLERS];
-	for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
-		messageHandlers[i].topic = 0;
-}
-
-
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::sendPacket(int length, int timeout)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::sendPacket(int length, Timer& timer)
 {
     int sent = 0;
     
     while (sent < length)
-        sent += ipstack->write(&buf[sent], length, timeout);
-	if (sent == length)
-	    ping_timer.countdown(this->keepAliveInterval); // record the fact that we have successfully sent the packet    
+        sent += ipstack->write(&buf[sent], length, timer.left_ms());
+    if (sent == length)
+        ping_timer.countdown(this->keepAliveInterval); // record the fact that we have successfully sent the packet    
     return sent;
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::decodePacket(int* value, int timeout)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::decodePacket(int* value, int timeout)
 {
     char c;
     int multiplier = 1;
     int len = 0;
-	const int MAX_NO_OF_REMAINING_LENGTH_BYTES = 4;
+    const int MAX_NO_OF_REMAINING_LENGTH_BYTES = 4;
 
     *value = 0;
     do
@@ -226,7 +253,7 @@ exit:
  * @param timeout the max time to wait for the packet read to complete, in milliseconds
  * @return the MQTT packet type, or -1 if none
  */
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::readPacket(int timeout) 
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::readPacket(Timer& timer) 
 {
     int rc = -1;
     MQTTHeader header = {0};
@@ -234,16 +261,16 @@ template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client
     int rem_len = 0;
 
     /* 1. read the header byte.  This has the packet type in it */
-    if (ipstack->read(readbuf, 1, timeout) != 1)
+    if (ipstack->read(readbuf, 1, timer.left_ms()) != 1)
         goto exit;
 
     len = 1;
     /* 2. read the remaining length.  This is variable in itself */
-    decodePacket(&rem_len, timeout);
+    decodePacket(&rem_len, timer.left_ms());
     len += MQTTPacket_encode(readbuf + 1, rem_len); /* put the original remaining length back into the buffer */
 
     /* 3. read the rest of the buffer using a callback to supply the rest of the data */
-    if (ipstack->read(readbuf + len, rem_len, timeout) != rem_len)
+    if (ipstack->read(readbuf + len, rem_len, timer.left_ms()) != rem_len)
         goto exit;
 
     header.byte = readbuf[0];
@@ -253,174 +280,156 @@ exit:
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::deliverMessage(MQTTString* topic, Message* message)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::deliverMessage(MQTTString* topic, Message* message)
 {
-	int rc = -1;
-;
-	// we have to find the right message handler - indexed by topic
-	for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
-	{
-		if (messageHandlers[i].topic && MQTTPacket_equals(topic, (char*)messageHandlers[i].topic))
-		{
-			messageHandlers[i].fp(message);
-			rc = 0;
-			break;
-		}
-	}
-	
-	return rc;
+    int rc = -1;
+
+    // we have to find the right message handler - indexed by topic
+    for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
+    {
+        if (messageHandlers[i].topic != 0 && MQTTPacket_equals(topic, (char*)messageHandlers[i].topic))
+        {
+            messageHandlers[i].fp(message);
+            rc = 0;
+            break;
+        }
+    }
+    if (rc == -1)
+        defaultMessageHandler(message);
+    
+    return rc;
 }
 
 
 
-template<class Network, class Timer, class Thread, class Mutex> void MQTT::Client<Network, Timer, Thread, Mutex>::yield(int timeout)
+template<class Network, class Timer> void MQTT::Client<Network, Timer>::yield(int timeout)
 {
-	Timer atimer = Timer();
-	
-	atimer.countdown_ms(timeout);
-	while (!atimer.expired())
-		cycle(atimer.left_ms());
+    Timer timer = Timer();
+    
+    timer.countdown_ms(timeout);
+    while (!timer.expired())
+        cycle(timer);
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::cycle(int timeout)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::cycle(Timer& timer)
 {
     /* get one piece of work off the wire and one pass through */
-   	printf("timeout %d\n", timeout); 
+
     // read the socket, see what work is due
-    int packet_type = readPacket(timeout);
+    int packet_type = readPacket(timer);
     
-	int len, rc;
+    int len, rc;
     switch (packet_type)
     {
         case CONNACK:
-			if (this->thread)
-			{
-				Result res = {this, 0};
-            	if (MQTTDeserialize_connack(&res.connack_rc, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-                	;
-				connectHandler(&res);
-				connectHandler.detach(); // only invoke the callback once
-			}
-			break;
         case PUBACK:
-        	if (this->thread)
-        		; //call resultHandler
         case SUBACK:
             break;
         case PUBLISH:
-			MQTTString topicName;
-			Message msg;
-			rc = MQTTDeserialize_publish((int*)&msg.dup, (int*)&msg.qos, (int*)&msg.retained, (int*)&msg.id, &topicName,
-								 (char**)&msg.payload, (int*)&msg.payloadlen, readbuf, limits.MAX_MQTT_PACKET_SIZE);;
-			if (msg.qos == QOS0)
-				deliverMessage(&topicName, &msg);
+            MQTTString topicName;
+            Message msg;
+            rc = MQTTDeserialize_publish((int*)&msg.dup, (int*)&msg.qos, (int*)&msg.retained, (int*)&msg.id, &topicName,
+                                 (char**)&msg.payload, (int*)&msg.payloadlen, readbuf, limits.MAX_MQTT_PACKET_SIZE);;
+            deliverMessage(&topicName, &msg);
+            if (msg.qos != QOS0)
+            {
+                if (msg.qos == QOS1)
+                    len = MQTTSerialize_ack(buf, limits.MAX_MQTT_PACKET_SIZE, PUBACK, 0, msg.id);
+                else if (msg.qos == QOS2)
+                    len = MQTTSerialize_ack(buf, limits.MAX_MQTT_PACKET_SIZE, PUBREC, 0, msg.id);
+                rc = sendPacket(len, timer); 
+                if (rc != len) 
+                    goto exit; // there was a problem
+            }
             break;
         case PUBREC:
-   	        int type, dup, mypacketid;
-   	        if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-   	            ; 
-   	        // must lock this access against the application thread, if we are multi-threaded
-			len = MQTTSerialize_ack(buf, limits.MAX_MQTT_PACKET_SIZE, PUBREL, 0, mypacketid);
-		    rc = sendPacket(len, timeout); // send the PUBREL packet
-			if (rc != len) 
-				goto exit; // there was a problem
+            int type, dup, mypacketid;
+            if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+                ; 
+            len = MQTTSerialize_ack(buf, limits.MAX_MQTT_PACKET_SIZE, PUBREL, 0, mypacketid);
+            rc = sendPacket(len, timer); // send the PUBREL packet
+            if (rc != len) 
+                goto exit; // there was a problem
 
             break;
         case PUBCOMP:
             break;
         case PINGRESP:
-			ping_outstanding = false;
+            ping_outstanding = false;
             break;
     }
-	keepalive();
+    keepalive();
 exit:
     return packet_type;
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::keepalive()
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::keepalive()
 {
-	int rc = 0;
+    int rc = 0;
 
-	if (keepAliveInterval == 0)
-		goto exit;
+    if (keepAliveInterval == 0)
+        goto exit;
 
-	if (ping_timer.expired())
-	{
-		if (ping_outstanding)
-			rc = -1;
-		else
-		{
-			int len = MQTTSerialize_pingreq(buf, limits.MAX_MQTT_PACKET_SIZE);
-			rc = sendPacket(len, 1000); // send the ping packet
-			if (rc != len) 
-				rc = -1; // indicate there's a problem
-			else
-				ping_outstanding = true;
-		}
-	}
+    if (ping_timer.expired())
+    {
+        if (ping_outstanding)
+            rc = -1;
+        else
+        {
+            Timer timer = Timer(1000);
+            int len = MQTTSerialize_pingreq(buf, limits.MAX_MQTT_PACKET_SIZE);
+            rc = sendPacket(len, timer); // send the ping packet
+            if (rc != len) 
+                rc = -1; // indicate there's a problem
+            else
+                ping_outstanding = true;
+        }
+    }
 
 exit:
-	return rc;
-}
-
-
-template<class Network, class Timer, class Thread, class Mutex> void MQTT::Client<Network, Timer, Thread, Mutex>::run(void const *argument)
-{
-	while (true)
-		cycle(ping_timer.left_ms());
+    return rc;
 }
 
 
 // only used in single-threaded mode where one command at a time is in process
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::waitfor(int packet_type, Timer& atimer)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::waitfor(int packet_type, Timer& timer)
 {
-	int rc = -1;
-	
-	do
+    int rc = -1;
+    
+    do
     {
-		if (atimer.expired()) 
-			break; // we timed out
-	}
-	while ((rc = cycle(atimer.left_ms())) != packet_type);	
-	
-	return rc;
+        if (timer.expired()) 
+            break; // we timed out
+    }
+    while ((rc = cycle(timer)) != packet_type);  
+    
+    return rc;
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::connect(MQTTPacket_connectData* options, resultHandler resultHandler)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::connect(MQTTPacket_connectData* options)
 {
-	connect_timer.countdown(limits.command_timeout);
+    Timer connect_timer = Timer(limits.command_timeout_ms);
 
     MQTTPacket_connectData default_options = MQTTPacket_connectData_initializer;
     if (options == 0)
         options = &default_options; // set default options if none were supplied
     
     this->keepAliveInterval = options->keepAliveInterval;
-	ping_timer.countdown(this->keepAliveInterval);
+    ping_timer.countdown(this->keepAliveInterval);
     int len = MQTTSerialize_connect(buf, limits.MAX_MQTT_PACKET_SIZE, options);
-    int rc = sendPacket(len, connect_timer.left_ms()); // send the connect packet
-	if (rc != len) 
-		goto exit; // there was a problem
+    int rc = sendPacket(len, connect_timer); // send the connect packet
+    if (rc != len) 
+        goto exit; // there was a problem
     
-    if (resultHandler == 0)     // wait until the connack is received 
+    // this will be a blocking call, wait for the connack
+    if (waitfor(CONNACK, connect_timer) == CONNACK)
     {
-        // this will be a blocking call, wait for the connack
-		if (waitfor(CONNACK, connect_timer) == CONNACK)
-		{
-        	int connack_rc = -1;
-        	if (MQTTDeserialize_connack(&connack_rc, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-	        	rc = connack_rc;
-	    }
-    }
-    else
-    {
-        // set connect response callback function
-        connectHandler.attach(resultHandler);
-        
-        // start background thread            
-        this->thread = new Thread((void (*)(void const *argument))&MQTT::Client<Network, Timer, Thread, Mutex>::threadfn, (void*)this);
+        int connack_rc = -1;
+        if (MQTTDeserialize_connack(&connack_rc, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+            rc = connack_rc;
     }
     
 exit:
@@ -428,101 +437,64 @@ exit:
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::findFreeOperation()
-{
-	int found = -1;
-	for (int i = 0; i < limits.MAX_CONCURRENT_OPERATIONS; ++i)
-	{
-		if (operations[i].id == 0)
-		{
-			found = i;
-			break;
-		}
-	}
-	return found;
-}
-
-
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::subscribe(const char* topicFilter, enum QoS qos, messageHandler messageHandler, resultHandler resultHandler)
-{
-	int index = 0;
-	if (this->thread)
-		index = findFreeOperation();	
-	Timer& atimer = operations[index].timer;
-	
-	atimer.countdown(limits.command_timeout);
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::subscribe(const char* topicFilter, enum QoS qos, messageHandler messageHandler)
+{ 
+    int len = -1;
+    Timer timer = Timer(limits.command_timeout_ms);
+    
     MQTTString topic = {(char*)topicFilter, 0, 0};
     
-    int len = MQTTSerialize_subscribe(buf, limits.MAX_MQTT_PACKET_SIZE, 0, packetid.getNext(), 1, &topic, (int*)&qos);
-    int rc = sendPacket(len, atimer.left_ms()); // send the subscribe packet
-	if (rc != len) 
-		goto exit; // there was a problem
+    int rc = MQTTSerialize_subscribe(buf, limits.MAX_MQTT_PACKET_SIZE, 0, packetid.getNext(), 1, &topic, (int*)&qos);
+    if (rc <= 0)
+        goto exit;
+    len = rc;
+    if ((rc = sendPacket(len, timer)) != len) // send the subscribe packet
+        goto exit; // there was a problem
     
-    /* wait for suback */
-    if (resultHandler == 0)
+    if (waitfor(SUBACK, timer) == SUBACK)      // wait for suback 
     {
-        // this will block
-        if (waitfor(SUBACK, atimer) == SUBACK)
+        int count = 0, grantedQoS = -1, mypacketid;
+        if (MQTTDeserialize_suback(&mypacketid, 1, &count, &grantedQoS, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+            rc = grantedQoS; // 0, 1, 2 or 0x80 
+        if (rc != 0x80)
         {
-            int count = 0, grantedQoS = -1, mypacketid;
-            if (MQTTDeserialize_suback(&mypacketid, 1, &count, &grantedQoS, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-                rc = grantedQoS; // 0, 1, 2 or 0x80 
-            if (rc != 0x80)
+            for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
             {
-            	for (int i = 0; i < limits.MAX_MESSAGE_HANDLERS; ++i)
-				{
-					if (messageHandlers[i].topic == 0)
-					{
-						messageHandlers[i].topic = topicFilter;
-						messageHandlers[i].fp.attach(messageHandler);
-						rc = 0;
-						break;
-					}
-				}
+                if (messageHandlers[i].topic == 0)
+                {
+                    messageHandlers[i].topic = topicFilter;
+                    messageHandlers[i].fp.attach(messageHandler);
+                    rc = 0;
+                    break;
+                }
             }
         }
     }
-    else
-    {
-        // set subscribe response callback function
-        
-    }
     
 exit:
     return rc;
 }
 
 
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::unsubscribe(const char* topicFilter, resultHandler resultHandler)
-{
-	int index = 0;
-	if (this->thread)
-		index = findFreeOperation();	
-	Timer& atimer = operations[index].timer;
-
-	atimer.countdown(limits.command_timeout);
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::unsubscribe(const char* topicFilter)
+{   
+    int len = -1;
+    Timer timer = Timer(limits.command_timeout_ms);
+    
     MQTTString topic = {(char*)topicFilter, 0, 0};
     
-    int len = MQTTSerialize_unsubscribe(buf, limits.MAX_MQTT_PACKET_SIZE, 0, packetid.getNext(), 1, &topic);
-    int rc = sendPacket(len, atimer.left_ms()); // send the subscribe packet
-	if (rc != len) 
-		goto exit; // there was a problem
+    int rc = MQTTSerialize_unsubscribe(buf, limits.MAX_MQTT_PACKET_SIZE, 0, packetid.getNext(), 1, &topic);
+    if (rc <= 0)
+        goto exit;
+    len = rc;
+    if ((rc = sendPacket(len, timer)) != len) // send the subscribe packet
+        goto exit; // there was a problem
     
-    /* wait for unsuback */
-    if (resultHandler == 0)
+    if (waitfor(UNSUBACK, timer) == UNSUBACK)
     {
-        // this will block
-        if (waitfor(UNSUBACK) == UNSUBACK)
-        {
-            int mypacketid;
-            if (MQTTDeserialize_unsuback(&mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-                rc = 0; 
-        }
-    }
-    else
-    {
-        // set unsubscribe response callback function
-        
+        int mypacketid;  // should be the same as the packetid above
+        if (MQTTDeserialize_unsuback(&mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+            rc = 0; 
     }
     
 exit:
@@ -531,53 +503,51 @@ exit:
 
 
    
-template<class Network, class Timer, class Thread, class Mutex> int MQTT::Client<Network, Timer, Thread, Mutex>::publish(const char* topicName, Message* message, resultHandler resultHandler)
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::publish(const char* topicName, Message* message)
 {
-	int index = 0;
-	if (this->thread)
-		index = findFreeOperation();	
-	Timer& atimer = operations[index].timer;
-
-	atimer.countdown(limits.command_timeout);
-    MQTTString topic = {(char*)topicName, 0, 0};
-
-	message->id = packetid.getNext();
+    Timer timer = Timer(limits.command_timeout_ms);
     
-	int len = MQTTSerialize_publish(buf, limits.MAX_MQTT_PACKET_SIZE, 0, message->qos, message->retained, message->id, topic, (char*)message->payload, message->payloadlen);
-    int rc = sendPacket(len, atimer.left_ms()); // send the subscribe packet
-	if (rc != len) 
-		goto exit; // there was a problem
+    MQTTString topicString = {(char*)topicName, 0, 0};
+
+    if (message->qos == QOS1 || message->qos == QOS2)
+        message->id = packetid.getNext();
     
-    /* wait for acks */
-    if (resultHandler == 0)
+    int len = MQTTSerialize_publish(buf, limits.MAX_MQTT_PACKET_SIZE, 0, message->qos, message->retained, message->id, 
+              topicString, (char*)message->payload, message->payloadlen);
+    int rc = sendPacket(len, timer); // send the subscribe packet
+    if (rc != len) 
+        goto exit; // there was a problem
+    
+    if (message->qos == QOS1)
     {
- 		if (message->qos == QOS1)
-		{
-	        if (waitfor(PUBACK, atimer) == PUBACK)
-    	    {
-    	        int type, dup, mypacketid;
-    	        if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-    	            rc = 0; 
-    	    }
-		}
-		else if (message->qos == QOS2)
-		{
-	        if (waitfor(PUBCOMP, atimer) == PUBCOMP)
-	   	    {
-	   	    	int type, dup, mypacketid;
-            	if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
-    	           	rc = 0; 
-			}
-
-		}
+        if (waitfor(PUBACK, timer) == PUBACK)
+        {
+            int type, dup, mypacketid;
+            if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+                rc = 0; 
+        }
     }
-    else
+    else if (message->qos == QOS2)
     {
-        // set publish response callback function
-        
+        if (waitfor(PUBCOMP, timer) == PUBCOMP)
+        {
+            int type, dup, mypacketid;
+            if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, limits.MAX_MQTT_PACKET_SIZE) == 1)
+                rc = 0; 
+        }
     }
     
 exit:
+    return rc;
+}
+
+
+template<class Network, class Timer> int MQTT::Client<Network, Timer>::disconnect()
+{  
+    Timer timer = Timer(limits.command_timeout_ms);     // we might wait for incomplete incoming publishes to complete
+    int len = MQTTSerialize_disconnect(buf, limits.MAX_MQTT_PACKET_SIZE);
+    int rc = sendPacket(len, timer);   // send the disconnect packet
+    
     return rc;
 }
 
