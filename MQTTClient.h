@@ -13,6 +13,15 @@
  * Contributors:
  *    Ian Craggs - initial API and implementation and/or initial documentation
  *******************************************************************************/
+ 
+ /*
+ 
+ TODO: 
+ 
+ log messages - use macros
+ define return code constants
+ 
+ */
 
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
@@ -75,6 +84,12 @@ typedef struct limits
 } Limits;
   
   
+/**
+ * @class Client
+ * @brief blocking, non-threaded MQTT Client API
+ * @param Network a network class which supports send, receive
+ * @param Timer a timer class with the methods: 
+ */ 
 template<class Network, class Timer> class Client
 {
     
@@ -548,7 +563,7 @@ template<class Network, class Timer> int MQTT::Client<Network, Timer>::disconnec
     int len = MQTTSerialize_disconnect(buf, limits.MAX_MQTT_PACKET_SIZE);
     int rc = sendPacket(len, timer);   // send the disconnect packet
     
-    return rc;
+    return (rc == len) ? 0 : -1;
 }
 
 
