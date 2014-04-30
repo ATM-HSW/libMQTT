@@ -86,14 +86,14 @@ typedef struct limits
   
 /**
  * @class Client
- * @brief blocking, non-threaded MQTT Client API
+ * @brief blocking, non-threaded MQTT client API
  * @param Network a network class which supports send, receive
  * @param Timer a timer class with the methods: 
  */ 
 template<class Network, class Timer> class Client
 {
     
-public:    
+public:
 
     /** Construct the client
      *  @param network - pointer to an instance of the Network class - must be connected to the endpoint

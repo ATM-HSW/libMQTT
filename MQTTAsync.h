@@ -69,7 +69,13 @@ typedef struct limits
 	}
 } Limits;
   
-  
+
+/**
+ * @class Async
+ * @brief non-blocking, threaded MQTT client API
+ * @param Network a network class which supports send, receive
+ * @param Timer a timer class with the methods: 
+ */ 
 template<class Network, class Timer, class Thread, class Mutex> class Async
 {
     
