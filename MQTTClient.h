@@ -26,6 +26,8 @@
  
  match wildcard topics
  
+ updating usage of FP. Try to remove inclusion of FP.cpp in main. sg-
+ 
  */
 
 #if !defined(MQTTCLIENT_H)
@@ -190,17 +192,18 @@ private:
     
     PacketId packetid;
     
-    typedef FP<void, Message*> messageHandlerFP;
+//    typedef FP<void, Message*> messageHandlerFP;
+//    FP<void, Message*> messageHandlerFP;
     struct MessageHandlers
     {
         const char* topic;
-        messageHandlerFP fp;
+        FP<void, Message*> fp;
     } messageHandlers[MAX_MESSAGE_HANDLERS];      // Message handlers are indexed by subscription topic
     
-    messageHandlerFP defaultMessageHandler;
+    FP<void, Message*> defaultMessageHandler;
     
-    typedef FP<int, connectionLostInfo*> connectionLostFP;
-    connectionLostFP connectionLostHandler;
+    FP<int, connectionLostInfo*> connectionLostHandler;
+//    connectionLostFP connectionLostHandler;
     
 };
 
@@ -350,7 +353,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
     // read the socket, see what work is due
     int packet_type = readPacket(timer);
     
-    int len, rc;
+    int len = 0, rc;
     switch (packet_type)
     {
         case CONNACK:
@@ -362,6 +365,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
             Message msg;
             rc = MQTTDeserialize_publish((int*)&msg.dup, (int*)&msg.qos, (int*)&msg.retained, (int*)&msg.id, &topicName,
                                  (char**)&msg.payload, (int*)&msg.payloadlen, readbuf, MAX_MQTT_PACKET_SIZE);;
+            rc = rc;    // make sure optimizer doesnt omit this
             deliverMessage(&topicName, &msg);
             if (msg.qos != QOS0)
             {
