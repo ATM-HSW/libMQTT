@@ -20,6 +20,8 @@
  
  ensure publish packets are retried on reconnect
  
+ updating usage of FP. Try to remove inclusion of FP.cpp in main. sg-
+ 
  */
 
 #if !defined(MQTTCLIENT_H)
@@ -171,16 +173,18 @@ private:
     
     PacketId packetid;
     
-    typedef FP<void, Message*> messageHandlerFP;
+    // typedef FP<void, Message*> messageHandlerFP;
     struct MessageHandlers
     {
         const char* topicFilter;
-        messageHandlerFP fp;
+        //messageHandlerFP fp; typedefs not liked?
+        FP<void, Message*> fp;
     } messageHandlers[MAX_MESSAGE_HANDLERS];      // Message handlers are indexed by subscription topic
     
-    messageHandlerFP defaultMessageHandler;
-    
+    FP<void, Message*> defaultMessageHandler;
+     
     bool isconnected;
+
 };
 
 }
@@ -378,6 +382,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
     
     int len = 0,
         rc = SUCCESS;
+
     switch (packet_type)
     {
         case CONNACK:
