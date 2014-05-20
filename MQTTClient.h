@@ -33,7 +33,7 @@
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
 
-#include "FP.h"
+#include "FP.cpp"
 #include "MQTTPacket.h"
 #include "stdio.h"
 
