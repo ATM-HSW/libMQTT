@@ -20,14 +20,12 @@
  
  ensure publish packets are retried on reconnect
  
- updating usage of FP. Try to remove inclusion of FP.cpp in main. sg-
- 
  */
 
 #if !defined(MQTTCLIENT_H)
 #define MQTTCLIENT_H
 
-#include "FP.cpp"
+#include "FP.h"
 #include "MQTTPacket.h"
 #include "stdio.h"
 
