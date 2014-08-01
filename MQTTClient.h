@@ -53,9 +53,7 @@ struct Message
 struct MessageData
 {
     MessageData(MQTTString &aTopicName, struct Message &aMessage)  : message(aMessage), topicName(aTopicName)
-    {
-
-    }
+    { }
     
     struct Message &message;
     MQTTString &topicName;
@@ -538,7 +536,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::connect(MQTTPacket_co
     if (waitfor(CONNACK, connect_timer) == CONNACK)
     {
         unsigned char connack_rc = 255;
-        if (MQTTDeserialize_connack(&connack_rc, readbuf, MAX_MQTT_PACKET_SIZE) == 1)
+        bool sessionPresent = false;
+        if (MQTTDeserialize_connack((unsigned char*)&sessionPresent, &connack_rc, readbuf, MAX_MQTT_PACKET_SIZE) == 1)
             rc = connack_rc;
         else
             rc = FAILURE;
