@@ -180,8 +180,8 @@ private:
     Network& ipstack;
     unsigned int command_timeout_ms;
     
-    char buf[MAX_MQTT_PACKET_SIZE];  
-    char readbuf[MAX_MQTT_PACKET_SIZE];  
+    unsigned char buf[MAX_MQTT_PACKET_SIZE];  
+    unsigned char readbuf[MAX_MQTT_PACKET_SIZE];  
 
     Timer ping_timer;
     unsigned int keepAliveInterval;
@@ -252,7 +252,7 @@ int MQTT::Client<Network, Timer, a, b>::sendPacket(int length, Timer& timer)
 template<class Network, class Timer, int a, int b> 
 int MQTT::Client<Network, Timer, a, b>::decodePacket(int* value, int timeout)
 {
-    char c;
+    unsigned char c;
     int multiplier = 1;
     int len = 0;
     const int MAX_NO_OF_REMAINING_LENGTH_BYTES = 4;
@@ -403,7 +403,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
     /* get one piece of work off the wire and one pass through */
 
     // read the socket, see what work is due
-    int packet_type = readPacket(timer);
+    unsigned short packet_type = readPacket(timer);
     
     int len = 0,
         rc = SUCCESS;
@@ -417,8 +417,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
         case PUBLISH:
             MQTTString topicName;
             Message msg;
-            if (MQTTDeserialize_publish((unsigned char*)&msg.dup, (int*)&msg.qos, (unsigned char*)&msg.retained, (int*)&msg.id, &topicName,
-                                 (char**)&msg.payload, (int*)&msg.payloadlen, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
+            if (MQTTDeserialize_publish((unsigned char*)&msg.dup, (int*)&msg.qos, (unsigned char*)&msg.retained, (unsigned short*)&msg.id, &topicName,
+                                 (unsigned char**)&msg.payload, (int*)&msg.payloadlen, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 goto exit;
 //          if (msg.qos != QOS2) 
                 deliverMessage(topicName, msg);
@@ -444,8 +444,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
             }
             break;
         case PUBREC:
-            int type, mypacketid;
-            unsigned char dup;
+            unsigned short mypacketid;
+            unsigned char dup, type;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
             else if ((len = MQTTSerialize_ack(buf, MAX_MQTT_PACKET_SIZE, PUBREL, 0, mypacketid)) <= 0)
@@ -537,7 +537,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::connect(MQTTPacket_co
     // this will be a blocking call, wait for the connack
     if (waitfor(CONNACK, connect_timer) == CONNACK)
     {
-        int connack_rc = -1;
+        unsigned char connack_rc = 255;
         if (MQTTDeserialize_connack(&connack_rc, readbuf, MAX_MQTT_PACKET_SIZE) == 1)
             rc = connack_rc;
         else
@@ -572,7 +572,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, MAX_MESSAGE_HANDLERS>::su
     
     if (waitfor(SUBACK, timer) == SUBACK)      // wait for suback 
     {
-        int count = 0, grantedQoS = -1, mypacketid;
+        int count = 0, grantedQoS = -1;
+        unsigned short mypacketid;
         if (MQTTDeserialize_suback(&mypacketid, 1, &count, &grantedQoS, readbuf, MAX_MQTT_PACKET_SIZE) == 1)
             rc = grantedQoS; // 0, 1, 2 or 0x80 
         if (rc != 0x80)
@@ -615,7 +616,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, MAX_MESSAGE_HANDLERS>::un
     
     if (waitfor(UNSUBACK, timer) == UNSUBACK)
     {
-        int mypacketid;  // should be the same as the packetid above
+        unsigned short mypacketid;  // should be the same as the packetid above
         if (MQTTDeserialize_unsuback(&mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) == 1)
             rc = 0; 
     }
@@ -643,7 +644,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::publish(const char* t
         message->id = packetid.getNext();
     
     len = MQTTSerialize_publish(buf, MAX_MQTT_PACKET_SIZE, 0, message->qos, message->retained, message->id, 
-              topicString, (char*)message->payload, message->payloadlen);
+              topicString, (unsigned char*)message->payload, message->payloadlen);
     if (len <= 0)
         goto exit;
     if ((rc = sendPacket(len, timer)) != SUCCESS) // send the subscribe packet
@@ -653,8 +654,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::publish(const char* t
     {
         if (waitfor(PUBACK, timer) == PUBACK)
         {
-            int type, mypacketid;
-            unsigned char dup;
+            unsigned short mypacketid;
+            unsigned char dup, type;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
         }
@@ -665,8 +666,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::publish(const char* t
     {
         if (waitfor(PUBCOMP, timer) == PUBCOMP)
         {
-            int type, mypacketid;
-            unsigned char dup;
+            unsigned short mypacketid;
+            unsigned char dup, type;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
         }

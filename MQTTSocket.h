@@ -13,16 +13,16 @@ public:
         return mysock.connect(hostname, port);
     }
 
-    int read(char* buffer, int len, int timeout)
+    int read(unsigned char* buffer, int len, int timeout)
     {
         mysock.set_blocking(false, timeout);  
-        return mysock.receive(buffer, len);
+        return mysock.receive((char*)buffer, len);
     }
     
-    int write(char* buffer, int len, int timeout)
+    int write(unsigned char* buffer, int len, int timeout)
     {
         mysock.set_blocking(false, timeout);  
-        return mysock.send(buffer, len);
+        return mysock.send((char*)buffer, len);
     }
     
     int disconnect()
