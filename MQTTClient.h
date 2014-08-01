@@ -417,7 +417,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
         case PUBLISH:
             MQTTString topicName;
             Message msg;
-            if (MQTTDeserialize_publish((int*)&msg.dup, (int*)&msg.qos, (int*)&msg.retained, (int*)&msg.id, &topicName,
+            if (MQTTDeserialize_publish((unsigned char*)&msg.dup, (int*)&msg.qos, (unsigned char*)&msg.retained, (int*)&msg.id, &topicName,
                                  (char**)&msg.payload, (int*)&msg.payloadlen, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 goto exit;
 //          if (msg.qos != QOS2) 
@@ -444,7 +444,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::cycle(Timer& timer)
             }
             break;
         case PUBREC:
-            int type, dup, mypacketid;
+            int type, mypacketid;
+            unsigned char dup;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
             else if ((len = MQTTSerialize_ack(buf, MAX_MQTT_PACKET_SIZE, PUBREL, 0, mypacketid)) <= 0)
@@ -652,7 +653,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::publish(const char* t
     {
         if (waitfor(PUBACK, timer) == PUBACK)
         {
-            int type, dup, mypacketid;
+            int type, mypacketid;
+            unsigned char dup;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
         }
@@ -663,7 +665,8 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::publish(const char* t
     {
         if (waitfor(PUBCOMP, timer) == PUBCOMP)
         {
-            int type, dup, mypacketid;
+            int type, mypacketid;
+            unsigned char dup;
             if (MQTTDeserialize_ack(&type, &dup, &mypacketid, readbuf, MAX_MQTT_PACKET_SIZE) != 1)
                 rc = FAILURE;
         }
