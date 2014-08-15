@@ -15,6 +15,16 @@ public:
         eth.connect();
     }
     
+    EthernetInterface& getEth()
+    {
+        return eth;
+    }
+    
+    void reconnect()
+    {
+        eth.connect();  // nothing I've tried actually works to reconnect 
+    }
+    
 private:
 
     EthernetInterface eth;

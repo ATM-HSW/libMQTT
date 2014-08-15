@@ -28,6 +28,7 @@
 #include "FP.h"
 #include "MQTTPacket.h"
 #include "stdio.h"
+#include "MQTT_logging.h"
 
 namespace MQTT
 {
