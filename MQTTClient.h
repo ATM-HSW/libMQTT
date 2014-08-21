@@ -123,6 +123,12 @@ public:
         defaultMessageHandler.attach(mh);
     }
     
+    void setLogHandler()
+    {
+        logHandler.attach(lh);
+    }
+
+    
     /** MQTT Connect - send an MQTT connect packet down the network and wait for a Connack
      *  The nework object must be connected to the network endpoint before calling this 
      *  @param options - connect options
@@ -241,6 +247,8 @@ int MQTT::Client<Network, Timer, a, b>::sendPacket(int length, Timer& timer)
     {
         ping_timer.countdown(this->keepAliveInterval); // record the fact that we have successfully sent the packet    
         rc = SUCCESS;
+        //if (debug)
+        // Log (packet)
     }
     else
         rc = FAILURE;
