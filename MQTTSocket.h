@@ -1,7 +1,7 @@
 #if !defined(MQTTSOCKET_H)
 #define MQTTSOCKET_H
 
-#include "MQTT_mbed.h"
+#include "MQTTmbed.h"
 #include "TCPSocketConnection.h"
 
 class MQTTSocket

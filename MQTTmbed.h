@@ -23,7 +23,7 @@ public:
         return t.read_ms() >= interval_end_ms;
     }
     
-    void countdown_ms(int ms)  
+    void countdown_ms(unsigned long ms)  
     {
         t.stop();
         interval_end_ms = ms;
@@ -33,7 +33,7 @@ public:
     
     void countdown(int seconds)
     {
-        countdown_ms(seconds * 1000);
+        countdown_ms((unsigned long)seconds * 1000L);
     }
     
     int left_ms()
@@ -43,7 +43,7 @@ public:
     
 private:
     Timer t;
-    int interval_end_ms; 
+    unsigned long interval_end_ms; 
 };
 
 #endif
