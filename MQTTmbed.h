@@ -8,27 +8,27 @@ class Countdown
 public:
     Countdown()
     {
-        t = Timer();   
+        t = new Timer();   
     }
     
     Countdown(int ms)
     {
-        t = Timer();
+        t = new Timer();
         countdown_ms(ms);   
     }
     
     
     bool expired()
     {
-        return t.read_ms() >= interval_end_ms;
+        return t->read_ms() >= interval_end_ms;
     }
     
     void countdown_ms(unsigned long ms)  
     {
-        t.stop();
+        t->stop();
         interval_end_ms = ms;
-        t.reset();
-        t.start();
+        t->reset();
+        t->start();
     }
     
     void countdown(int seconds)
@@ -38,11 +38,11 @@ public:
     
     int left_ms()
     {
-        return interval_end_ms - t.read_ms();
+        return interval_end_ms - t->read_ms();
     }
     
 private:
-    Timer t;
+    Timer *t;
     unsigned long interval_end_ms; 
 };
 
