@@ -6,36 +6,39 @@
 
 class MQTTSocket
 {
-public:    
+public:
     int connect(char* hostname, int port, int timeout=1000)
     {
-        mysock.set_blocking(false, timeout);    // 1 second Timeout 
+        mysock.set_blocking(false, timeout);    // 1 second Timeout
         return mysock.connect(hostname, port);
     }
 
     int read(unsigned char* buffer, int len, int timeout)
     {
-        mysock.set_blocking(false, timeout);  
+        mysock.set_blocking(false, timeout);
         return mysock.receive((char*)buffer, len);
     }
-    
+
     int write(unsigned char* buffer, int len, int timeout)
     {
-        mysock.set_blocking(false, timeout);  
+        mysock.set_blocking(false, timeout);
         return mysock.send((char*)buffer, len);
     }
-    
+
     int disconnect()
     {
         return mysock.close();
     }
-    
+
+    bool is_connected()
+    {
+        return mysock.is_connected();
+    }
+
 private:
 
-    TCPSocketConnection mysock; 
-    
+    TCPSocketConnection mysock;
+
 };
-
-
 
 #endif
