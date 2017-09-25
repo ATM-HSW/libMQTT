@@ -6,14 +6,13 @@
 class Countdown
 {
 public:
-    Countdown()
+    Countdown() : t()
     {
-        t = Timer();   
+  
     }
     
-    Countdown(int ms)
+    Countdown(int ms) : t()
     {
-        t = Timer();
         countdown_ms(ms);   
     }
     
