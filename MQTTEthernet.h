@@ -9,20 +9,14 @@
 class MQTTEthernet : public MQTTSocket
 {
 public:    
-    MQTTEthernet()
+    MQTTEthernet() : MQTTSocket(&eth)
     {
-        eth.init();                          // Use DHCP
         eth.connect();
     }
     
     EthernetInterface& getEth()
     {
         return eth;
-    }
-    
-    void reconnect()
-    {
-        eth.connect();  // nothing I've tried actually works to reconnect 
     }
     
 private:
