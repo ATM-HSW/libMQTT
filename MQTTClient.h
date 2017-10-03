@@ -382,13 +382,13 @@ int MQTT::Client<Network, Timer, a, b>::sendPacket(int length, Timer& timer)
     int rc = FAILURE,
         sent = 0;
 
-    while (sent < length && !timer.expired())
+    do
     {
         rc = ipstack.write(&sendbuf[sent], length - sent, timer.left_ms());
         if (rc < 0)  // there was an error writing the data
             break;
         sent += rc;
-    }
+    } while (sent < length && !timer.expired());
     if (sent == length)
     {
         if (this->keepAliveInterval > 0)
@@ -400,7 +400,7 @@ int MQTT::Client<Network, Timer, a, b>::sendPacket(int length, Timer& timer)
 
 #if defined(MQTT_DEBUG)
     char printbuf[150];
-    DEBUG("Rc %d from sending packet %s\n", rc, 
+    DEBUG("Rc %d from sending packet %s\r\n", rc, 
         MQTTFormat_toServerString(printbuf, sizeof(printbuf), sendbuf, length));
 #endif
     return rc;
@@ -480,7 +480,7 @@ exit:
     if (rc >= 0)
     {
         char printbuf[50];
-        DEBUG("Rc %d receiving packet %s\n", rc, 
+        DEBUG("Rc %d receiving packet %s\r\n", rc, 
             MQTTFormat_toClientString(printbuf, sizeof(printbuf), readbuf, len));
     }
 #endif
@@ -688,8 +688,7 @@ int MQTT::Client<Network, Timer, MAX_MQTT_PACKET_SIZE, b>::keepalive()
         {
             rc = FAILURE; // session failure
             #if defined(MQTT_DEBUG)
-                char printbuf[150];
-                DEBUG("PINGRESP not received in keepalive interval\n");
+                DEBUG("PINGRESP not received in keepalive interval\r\n");
             #endif
         }
     }
