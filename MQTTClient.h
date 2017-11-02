@@ -382,13 +382,15 @@ int MQTT::Client<Network, Timer, a, b>::sendPacket(int length, Timer& timer)
     int rc = FAILURE,
         sent = 0;
 
-    do
+    while (sent < length)
     {
         rc = ipstack.write(&sendbuf[sent], length - sent, timer.left_ms());
         if (rc < 0)  // there was an error writing the data
             break;
         sent += rc;
-    } while (sent < length && !timer.expired());
+        if (timer.expired()) // only check expiry after at least one attempt to write
+            break;
+    }
     if (sent == length)
     {
         if (this->keepAliveInterval > 0)
